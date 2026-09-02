@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<RaiseFault continueOnError="false" enabled="true" name="RF-NotFound">
+  <DisplayName>RF-NotFound</DisplayName>
+  <FaultResponse>
+    <Set>
+      <Headers>
+        <Header name="Content-Type">application/json</Header>
+      </Headers>
+      <Payload contentType="application/json">{"error":{"message":"Rota nao encontrada: {request.verb} {proxy.pathsuffix}. Rotas disponiveis: POST /v1/chat/completions, GET /v1/models, GET /health.","type":"invalid_request_error","param":null,"code":"unknown_url"}}</Payload>
+      <StatusCode>404</StatusCode>
+      <ReasonPhrase>Not Found</ReasonPhrase>
+    </Set>
+  </FaultResponse>
+  <IgnoreUnresolvedVariables>true</IgnoreUnresolvedVariables>
+</RaiseFault>

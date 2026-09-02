@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<AssignMessage continueOnError="true" enabled="true" name="AM-AddCorsAndTrace">
+  <DisplayName>AM-AddCorsAndTrace</DisplayName>
+  <Set>
+    <Headers>
+      <Header name="x-request-id">{messageid}</Header>
+      <Header name="x-llm-model">{llm.model.alias}</Header>
+      <Header name="x-llm-total-tokens">{llm.usage.total_tokens}</Header>
+      <Header name="Access-Control-Allow-Origin">*</Header>
+      <Header name="Access-Control-Expose-Headers">x-request-id, x-llm-model, x-llm-total-tokens</Header>
+    </Headers>
+  </Set>
+  <AssignTo createNew="false" transport="http" type="response"/>
+  <IgnoreUnresolvedVariables>true</IgnoreUnresolvedVariables>
+</AssignMessage>

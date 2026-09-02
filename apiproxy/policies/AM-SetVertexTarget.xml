@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<AssignMessage continueOnError="false" enabled="true" name="AM-SetVertexTarget">
+  <DisplayName>AM-SetVertexTarget</DisplayName>
+  <AssignVariable>
+    <Name>target.url</Name>
+    <Template>https://{llm.cfg.vertex_host}/v1/projects/{llm.cfg.vertex_project}/locations/{llm.cfg.vertex_location}/publishers/google/models/{llm.model.id}:generateContent</Template>
+  </AssignVariable>
+  <AssignVariable>
+    <Name>target.copy.pathsuffix</Name>
+    <Value>false</Value>
+  </AssignVariable>
+  <IgnoreUnresolvedVariables>false</IgnoreUnresolvedVariables>
+</AssignMessage>

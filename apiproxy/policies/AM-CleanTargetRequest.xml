@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<AssignMessage continueOnError="false" enabled="true" name="AM-CleanTargetRequest">
+  <DisplayName>AM-CleanTargetRequest</DisplayName>
+  <Remove>
+    <Headers>
+      <Header name="x-apikey"/>
+      <Header name="Authorization"/>
+      <Header name="apikey"/>
+      <Header name="x-api-key"/>
+      <Header name="OpenAI-Organization"/>
+      <Header name="OpenAI-Project"/>
+      <Header name="Accept-Encoding"/>
+    </Headers>
+    <QueryParams>
+      <QueryParam name="key"/>
+    </QueryParams>
+  </Remove>
+  <Set>
+    <Headers>
+      <Header name="Content-Type">application/json; charset=utf-8</Header>
+      <Header name="Accept">application/json</Header>
+      <Header name="x-goog-request-params">model={llm.model.id}</Header>
+    </Headers>
+    <Verb>POST</Verb>
+  </Set>
+  <AssignTo createNew="false" transport="http" type="request"/>
+  <IgnoreUnresolvedVariables>true</IgnoreUnresolvedVariables>
+</AssignMessage>

@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Quota continueOnError="false" enabled="true" name="Q-RequestQuota">
+  <DisplayName>Q-RequestQuota</DisplayName>
+  <Interval ref="verifyapikey.VA-VerifyApiKey.apiproduct.developer.quota.interval">1</Interval>
+  <TimeUnit ref="verifyapikey.VA-VerifyApiKey.apiproduct.developer.quota.timeunit">minute</TimeUnit>
+  <Allow countRef="verifyapikey.VA-VerifyApiKey.apiproduct.developer.quota.limit" count="120"/>
+  <Identifier ref="client_id"/>
+  <Distributed>true</Distributed>
+  <Synchronous>false</Synchronous>
+  <AsynchronousConfiguration>
+    <SyncIntervalInSeconds>10</SyncIntervalInSeconds>
+  </AsynchronousConfiguration>
+</Quota>

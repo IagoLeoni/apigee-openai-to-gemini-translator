@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<RaiseFault continueOnError="false" enabled="true" name="RF-ClientError">
+  <DisplayName>RF-ClientError</DisplayName>
+  <FaultResponse>
+    <Set>
+      <Headers>
+        <Header name="Content-Type">application/json</Header>
+      </Headers>
+      <Payload contentType="application/json">{"error":{"message":"{llm.error.message}","type":"{llm.error.type}","param":"{llm.error.param}","code":"{llm.error.code}"}}</Payload>
+      <StatusCode>{llm.error.status}</StatusCode>
+      <ReasonPhrase>{llm.error.reason}</ReasonPhrase>
+    </Set>
+  </FaultResponse>
+  <IgnoreUnresolvedVariables>true</IgnoreUnresolvedVariables>
+</RaiseFault>

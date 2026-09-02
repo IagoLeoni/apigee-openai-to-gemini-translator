@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<KeyValueMapOperations continueOnError="false" enabled="true" name="KVM-LoadGatewayConfig" mapIdentifier="llm-gateway-config">
+  <DisplayName>KVM-LoadGatewayConfig</DisplayName>
+  <Scope>environment</Scope>
+  <ExpiryTimeInSecs>300</ExpiryTimeInSecs>
+  <Get assignTo="llm.cfg.vertex_host">
+    <Key><Parameter>vertex_host</Parameter></Key>
+  </Get>
+  <Get assignTo="llm.cfg.vertex_project">
+    <Key><Parameter>vertex_project</Parameter></Key>
+  </Get>
+  <Get assignTo="llm.cfg.vertex_location">
+    <Key><Parameter>vertex_location</Parameter></Key>
+  </Get>
+  <Get assignTo="llm.cfg.model_map">
+    <Key><Parameter>model_map</Parameter></Key>
+  </Get>
+</KeyValueMapOperations>

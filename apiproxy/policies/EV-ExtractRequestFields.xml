@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<ExtractVariables continueOnError="true" enabled="true" name="EV-ExtractRequestFields">
+  <DisplayName>EV-ExtractRequestFields</DisplayName>
+  <Source clearPayload="false">request</Source>
+  <VariablePrefix>llm</VariablePrefix>
+  <JSONPayload>
+    <Variable name="model.alias" type="string">
+      <JSONPath>$.model</JSONPath>
+    </Variable>
+    <Variable name="stream" type="boolean">
+      <JSONPath>$.stream</JSONPath>
+    </Variable>
+    <Variable name="end_user" type="string">
+      <JSONPath>$.user</JSONPath>
+    </Variable>
+  </JSONPayload>
+  <IgnoreUnresolvedVariables>true</IgnoreUnresolvedVariables>
+</ExtractVariables>

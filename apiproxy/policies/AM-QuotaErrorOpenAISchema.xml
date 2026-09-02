@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<AssignMessage continueOnError="true" enabled="true" name="AM-QuotaErrorOpenAISchema">
+  <DisplayName>AM-QuotaErrorOpenAISchema</DisplayName>
+  <Set>
+    <Headers>
+      <Header name="Content-Type">application/json</Header>
+      <Header name="Retry-After">60</Header>
+    </Headers>
+    <Payload contentType="application/json">{"error":{"message":"Limite de requisicoes excedido para este app. Tente novamente em instantes.","type":"rate_limit_error","param":null,"code":"rate_limit_exceeded"}}</Payload>
+    <StatusCode>429</StatusCode>
+    <ReasonPhrase>Too Many Requests</ReasonPhrase>
+  </Set>
+  <AssignTo createNew="false" transport="http" type="response"/>
+  <IgnoreUnresolvedVariables>true</IgnoreUnresolvedVariables>
+</AssignMessage>

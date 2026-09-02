@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Javascript continueOnError="false" enabled="true" timeLimit="5000" name="JS-OpenAIToGemini">
+  <DisplayName>JS-OpenAIToGemini</DisplayName>
+  <IncludeURL>jsc://llm-common.js</IncludeURL>
+  <ResourceURL>jsc://openai-to-gemini.js</ResourceURL>
+</Javascript>

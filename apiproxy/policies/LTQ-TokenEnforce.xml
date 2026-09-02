@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<LLMTokenQuota continueOnError="false" enabled="true" name="LTQ-TokenEnforce" type="calendar">
+  <DisplayName>LTQ-TokenEnforce</DisplayName>
+  <Allow count="1000000" countRef="verifyapikey.VA-VerifyApiKey.apiproduct.developer.llmQuota.limit"/>
+  <Interval ref="verifyapikey.VA-VerifyApiKey.apiproduct.developer.llmQuota.interval">1</Interval>
+  <TimeUnit ref="verifyapikey.VA-VerifyApiKey.apiproduct.developer.llmQuota.timeunit">month</TimeUnit>
+  <Distributed>true</Distributed>
+  <Synchronous>true</Synchronous>
+  <StartTime>2026-01-01 00:00:00</StartTime>
+  <LLMModelSource>{llm.model.alias}</LLMModelSource>
+  <EnforceOnly>true</EnforceOnly>
+  <SharedName>llm-gateway-token-counter</SharedName>
+</LLMTokenQuota>

@@ -1,0 +1,41 @@
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<DataCapture async="false" continueOnError="true" enabled="true" name="DC-LlmUsage">
+  <DisplayName>DC-LlmUsage</DisplayName>
+  <IgnoreUnresolvedVariables>true</IgnoreUnresolvedVariables>
+  <Capture>
+    <DataCollector>dc_llm_model</DataCollector>
+    <Collect ref="llm.model.alias" default="unknown"/>
+  </Capture>
+  <Capture>
+    <DataCollector>dc_llm_prompt_tokens</DataCollector>
+    <Collect ref="llm.usage.prompt_tokens" default="0"/>
+  </Capture>
+  <Capture>
+    <DataCollector>dc_llm_completion_tokens</DataCollector>
+    <Collect ref="llm.usage.completion_tokens" default="0"/>
+  </Capture>
+  <Capture>
+    <DataCollector>dc_llm_total_tokens</DataCollector>
+    <Collect ref="llm.usage.total_tokens" default="0"/>
+  </Capture>
+  <Capture>
+    <DataCollector>dc_llm_cached_tokens</DataCollector>
+    <Collect ref="llm.usage.cached_tokens" default="0"/>
+  </Capture>
+  <Capture>
+    <DataCollector>dc_llm_reasoning_tokens</DataCollector>
+    <Collect ref="llm.usage.reasoning_tokens" default="0"/>
+  </Capture>
+  <Capture>
+    <DataCollector>dc_llm_finish_reason</DataCollector>
+    <Collect ref="llm.finish_reason" default="none"/>
+  </Capture>
+  <Capture>
+    <DataCollector>dc_llm_app</DataCollector>
+    <Collect ref="developer.app.name" default="unknown"/>
+  </Capture>
+  <Capture>
+    <DataCollector>dc_llm_end_user</DataCollector>
+    <Collect ref="llm.end_user" default="none"/>
+  </Capture>
+</DataCapture>

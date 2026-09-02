@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<AssignMessage continueOnError="false" enabled="true" name="AM-ListModelsInit">
+  <DisplayName>AM-ListModelsInit</DisplayName>
+  <Set>
+    <Headers>
+      <Header name="Content-Type">application/json; charset=utf-8</Header>
+    </Headers>
+    <Payload contentType="application/json">{}</Payload>
+    <StatusCode>200</StatusCode>
+    <ReasonPhrase>OK</ReasonPhrase>
+  </Set>
+  <AssignTo createNew="true" transport="http" type="response"/>
+  <IgnoreUnresolvedVariables>true</IgnoreUnresolvedVariables>
+</AssignMessage>

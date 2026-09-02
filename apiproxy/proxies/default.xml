@@ -1,0 +1,159 @@
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<ProxyEndpoint name="default">
+  <Description>Superficie OpenAI-compatible: /llm/v1/chat/completions, /llm/v1/models, /llm/health</Description>
+
+  <PreFlow name="PreFlow">
+    <Request>
+      <Step>
+        <Name>AM-CorsPreflight</Name>
+        <Condition>request.verb == "OPTIONS"</Condition>
+      </Step>
+      <Step>
+        <Name>SA-SpikeArrest</Name>
+        <Condition>proxy.pathsuffix !MatchesPath "/health"</Condition>
+      </Step>
+      <Step>
+        <Name>VA-VerifyApiKey</Name>
+        <Condition>proxy.pathsuffix !MatchesPath "/health"</Condition>
+      </Step>
+      <Step>
+        <Name>Q-RequestQuota</Name>
+        <Condition>proxy.pathsuffix !MatchesPath "/health"</Condition>
+      </Step>
+      <Step>
+        <Name>KVM-LoadGatewayConfig</Name>
+        <Condition>proxy.pathsuffix !MatchesPath "/health"</Condition>
+      </Step>
+    </Request>
+    <Response/>
+  </PreFlow>
+
+  <Flows>
+
+    <Flow name="ChatCompletions">
+      <Description>POST /v1/chat/completions - traducao GPT para Gemini e volta</Description>
+      <Condition>(proxy.pathsuffix MatchesPath "/v1/chat/completions") and (request.verb = "POST")</Condition>
+      <Request>
+        <Step>
+          <Name>EV-ExtractRequestFields</Name>
+        </Step>
+        <Step>
+          <Name>JS-OpenAIToGemini</Name>
+        </Step>
+        <Step>
+          <Name>RF-ClientError</Name>
+          <Condition>llm.error.code != null</Condition>
+        </Step>
+        <Step>
+          <Name>LTQ-TokenEnforce</Name>
+        </Step>
+        <Step>
+          <Name>AM-CleanTargetRequest</Name>
+        </Step>
+      </Request>
+      <Response>
+        <Step>
+          <Name>JS-GeminiToOpenAI</Name>
+          <Condition>response.status.code = 200</Condition>
+        </Step>
+        <Step>
+          <Name>LTQ-TokenCount</Name>
+          <Condition>response.status.code = 200</Condition>
+        </Step>
+        <Step>
+          <Name>JS-SseEmulation</Name>
+          <Condition>(response.status.code = 200) and (llm.stream = true)</Condition>
+        </Step>
+      </Response>
+    </Flow>
+
+    <Flow name="ListModels">
+      <Description>GET /v1/models - respondido localmente a partir do KVM</Description>
+      <Condition>(proxy.pathsuffix MatchesPath "/v1/models") and (request.verb = "GET")</Condition>
+      <Request/>
+      <Response>
+        <Step>
+          <Name>AM-ListModelsInit</Name>
+        </Step>
+        <Step>
+          <Name>JS-ListModels</Name>
+        </Step>
+      </Response>
+    </Flow>
+
+    <Flow name="Health">
+      <Condition>(proxy.pathsuffix MatchesPath "/health") and (request.verb = "GET")</Condition>
+      <Request>
+        <Step>
+          <Name>AM-Health</Name>
+        </Step>
+      </Request>
+      <Response/>
+    </Flow>
+
+    <Flow name="UnknownResource">
+      <Request>
+        <Step>
+          <Name>RF-NotFound</Name>
+        </Step>
+      </Request>
+      <Response/>
+    </Flow>
+
+  </Flows>
+
+  <PostFlow name="PostFlow">
+    <Request/>
+    <Response>
+      <Step>
+        <Name>DC-LlmUsage</Name>
+      </Step>
+      <Step>
+        <Name>AM-AddCorsAndTrace</Name>
+      </Step>
+    </Response>
+  </PostFlow>
+
+  <DefaultFaultRule name="default-fault">
+    <Step>
+      <Name>DC-LlmUsage</Name>
+    </Step>
+    <Step>
+      <Name>AM-AddCorsAndTrace</Name>
+    </Step>
+    <AlwaysEnforce>true</AlwaysEnforce>
+  </DefaultFaultRule>
+
+  <FaultRules>
+    <FaultRule name="apikey-faults">
+      <Step>
+        <Name>AM-AuthErrorOpenAISchema</Name>
+      </Step>
+      <Condition>(fault.name = "InvalidApiKey") or (fault.name = "InvalidApiKeyForGivenResource") or (fault.name = "FailedToResolveAPIKey") or (fault.name = "invalid_client-app_not_approved") or (fault.name = "InvalidAPICallAsNoApiProductMatchFound")</Condition>
+    </FaultRule>
+    <FaultRule name="quota-faults">
+      <Step>
+        <Name>AM-QuotaErrorOpenAISchema</Name>
+      </Step>
+      <Condition>(fault.name = "QuotaViolation") or (fault.name = "LLMQuotaViolation") or (fault.name = "SpikeArrestViolation")</Condition>
+    </FaultRule>
+  </FaultRules>
+
+  <HTTPProxyConnection>
+    <BasePath>/llm</BasePath>
+    <Properties/>
+  </HTTPProxyConnection>
+
+  <RouteRule name="rr-gemini-flash">
+    <Condition>(llm.model.alias = "gemini-3.7-flash") and (proxy.pathsuffix MatchesPath "/v1/chat/completions")</Condition>
+    <TargetEndpoint>gemini-flash</TargetEndpoint>
+  </RouteRule>
+
+  <RouteRule name="rr-gemini-flash-lite">
+    <Condition>(llm.model.alias = "gemini-3.1-flash-lite") and (proxy.pathsuffix MatchesPath "/v1/chat/completions")</Condition>
+    <TargetEndpoint>gemini-flash-lite</TargetEndpoint>
+  </RouteRule>
+
+  <RouteRule name="rr-no-route"/>
+
+</ProxyEndpoint>

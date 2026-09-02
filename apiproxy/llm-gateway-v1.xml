@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<APIProxy revision="1" name="llm-gateway-v1">
+  <DisplayName>LLM Gateway v1 (OpenAI-compatible - Vertex Gemini)</DisplayName>
+  <Description>Gateway com schema OpenAI Chat Completions sobre Vertex AI Model Garden (Gemini). Traducao bidirecional, roteamento por modelo e telemetria de tokens.</Description>
+  <ProxyEndpoints>
+    <ProxyEndpoint>default</ProxyEndpoint>
+  </ProxyEndpoints>
+  <TargetEndpoints>
+    <TargetEndpoint>gemini-flash</TargetEndpoint>
+    <TargetEndpoint>gemini-flash-lite</TargetEndpoint>
+  </TargetEndpoints>
+</APIProxy>

@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<AssignMessage continueOnError="false" enabled="true" name="AM-CorsPreflight">
+  <DisplayName>AM-CorsPreflight</DisplayName>
+  <Set>
+    <Headers>
+      <Header name="Access-Control-Allow-Origin">*</Header>
+      <Header name="Access-Control-Allow-Headers">content-type, x-apikey, accept</Header>
+      <Header name="Access-Control-Allow-Methods">GET, POST, OPTIONS</Header>
+      <Header name="Access-Control-Max-Age">3600</Header>
+    </Headers>
+    <StatusCode>204</StatusCode>
+    <ReasonPhrase>No Content</ReasonPhrase>
+  </Set>
+  <AssignTo createNew="true" transport="http" type="response"/>
+  <IgnoreUnresolvedVariables>true</IgnoreUnresolvedVariables>
+</AssignMessage>

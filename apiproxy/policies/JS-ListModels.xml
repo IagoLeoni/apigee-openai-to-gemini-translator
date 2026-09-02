@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Javascript continueOnError="true" enabled="true" timeLimit="3000" name="JS-ListModels">
+  <DisplayName>JS-ListModels</DisplayName>
+  <IncludeURL>jsc://llm-common.js</IncludeURL>
+  <ResourceURL>jsc://list-models.js</ResourceURL>
+</Javascript>

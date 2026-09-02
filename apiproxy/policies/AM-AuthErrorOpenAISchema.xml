@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<AssignMessage continueOnError="true" enabled="true" name="AM-AuthErrorOpenAISchema">
+  <DisplayName>AM-AuthErrorOpenAISchema</DisplayName>
+  <Set>
+    <Headers>
+      <Header name="Content-Type">application/json</Header>
+    </Headers>
+    <Payload contentType="application/json">{"error":{"message":"API key invalida, ausente ou sem acesso a este produto. Envie a chave no header x-apikey.","type":"authentication_error","param":null,"code":"invalid_api_key"}}</Payload>
+    <StatusCode>401</StatusCode>
+    <ReasonPhrase>Unauthorized</ReasonPhrase>
+  </Set>
+  <AssignTo createNew="false" transport="http" type="response"/>
+  <IgnoreUnresolvedVariables>true</IgnoreUnresolvedVariables>
+</AssignMessage>
