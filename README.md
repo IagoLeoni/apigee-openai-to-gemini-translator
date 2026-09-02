@@ -244,3 +244,13 @@ apiproxy/
 deploy/                                  7 scripts idempotentes (00 a 06 + config)
 tests/                                   harness offline, smoke tests, SDK OpenAI
 ```
+
+---
+
+## License
+
+All solutions within this repository are provided under the [Apache 2.0](https://www.apache.org/licenses/LICENSE-2.0) license. Please see the [LICENSE](https://github.com/GoogleCloudPlatform/apigee-samples/blob/main/LICENSE.txt) file for more detailed terms and conditions.
+
+## Not Google Product Clause
+
+This is not an officially supported Google product, nor is it part of an official Google product.
