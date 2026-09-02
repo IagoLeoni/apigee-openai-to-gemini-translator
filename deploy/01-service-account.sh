@@ -8,17 +8,27 @@ gcloud iam service-accounts create "$SA_ID" \
   --display-name="Apigee LLM Gateway - acesso ao Vertex AI" \
   --project "$PROJECT_ID" || echo "Service account ja existe, seguindo."
 
-# Permissao minima: invocar modelos do Vertex AI.
+# Permissao minima: invocar modelos do Vertex AI e gravar logs no Cloud Logging.
 gcloud projects add-iam-policy-binding "$VERTEX_PROJECT" \
   --member="serviceAccount:${PROXY_SA}" \
   --role="roles/aiplatform.user" \
   --condition=None
 
-# Necessario para o Apigee gerar tokens em nome desta SA no deploy.
+gcloud projects add-iam-policy-binding "$PROJECT_ID" \
+  --member="serviceAccount:${PROXY_SA}" \
+  --role="roles/logging.logWriter" \
+  --condition=None || true
+
+# Necessario para o Apigee gerar tokens em nome desta SA no deploy e gravar logs no Cloud Logging.
 APIGEE_AGENT="service-$(gcloud projects describe "$PROJECT_ID" --format='value(projectNumber)')@gcp-sa-apigee.iam.gserviceaccount.com"
 gcloud iam service-accounts add-iam-policy-binding "$PROXY_SA" \
   --member="serviceAccount:${APIGEE_AGENT}" \
   --role="roles/iam.serviceAccountTokenCreator" \
   --project "$PROJECT_ID"
+
+gcloud projects add-iam-policy-binding "$PROJECT_ID" \
+  --member="serviceAccount:${APIGEE_AGENT}" \
+  --role="roles/logging.logWriter" \
+  --condition=None || true
 
 echo "Service account pronta: $PROXY_SA"

@@ -135,8 +135,8 @@ console.log('\n[4] Gemini -> GPT: texto + usage com thinking tokens');
   check('total_tokens do upstream', out.usage.total_tokens === 71);
   check('reasoning_tokens detalhado', out.usage.completion_tokens_details.reasoning_tokens === 40);
   check('cached_tokens detalhado', out.usage.prompt_tokens_details.cached_tokens === 10);
-  check('var data collector prompt', ctx.getVariable('llm.usage.prompt_tokens') === 18);
-  check('var data collector total', ctx.getVariable('llm.usage.total_tokens') === 71);
+  check('var data collector prompt', ctx.getVariable('llm.usage.prompt_tokens') === '18');
+  check('var data collector total', ctx.getVariable('llm.usage.total_tokens') === '71');
   check('var data collector finish_reason', ctx.getVariable('llm.finish_reason') === 'stop');
 }
 
@@ -168,7 +168,7 @@ console.log('\n[6] Gemini -> GPT: prompt bloqueado');
   }));
   const out = JSON.parse(ctx.getVariable('response.content'));
   check('finish_reason content_filter', out.choices[0].finish_reason === 'content_filter');
-  check('tokens de prompt ainda contabilizados', ctx.getVariable('llm.usage.prompt_tokens') === 9);
+  check('tokens de prompt ainda contabilizados', ctx.getVariable('llm.usage.prompt_tokens') === '9');
 }
 
 /* ---------------- Teste 7: SSE ---------------- */

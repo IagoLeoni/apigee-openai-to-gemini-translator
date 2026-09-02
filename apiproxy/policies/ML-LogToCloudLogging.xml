@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<MessageLogging continueOnError="true" enabled="true" name="ML-LogToCloudLogging">
+  <DisplayName>ML-LogToCloudLogging</DisplayName>
+  <CloudLogging>
+    <LogName>projects/{organization.name}/logs/apigee-llm-gateway</LogName>
+    <Message contentType="application/json">{llm.log.json}</Message>
+  </CloudLogging>
+</MessageLogging>

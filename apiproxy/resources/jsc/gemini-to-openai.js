@@ -124,12 +124,12 @@
   context.setVariable('response.content', JSON.stringify(out));
   context.setVariable('response.header.Content-Type', 'application/json; charset=utf-8');
 
-  /* Variaveis consumidas pela DataCapture (tipos numericos, nao strings). */
-  context.setVariable('llm.usage.prompt_tokens', promptTokens);
-  context.setVariable('llm.usage.completion_tokens', completionTokens);
-  context.setVariable('llm.usage.total_tokens', totalTokens);
-  context.setVariable('llm.usage.cached_tokens', cachedTokens);
-  context.setVariable('llm.usage.reasoning_tokens', thoughtTokens);
+  /* Variaveis consumidas pela DataCapture e LLMTokenQuota (strings inteiras para evitar unparsed value x.0 no Rhino). */
+  context.setVariable('llm.usage.prompt_tokens', String(Math.floor(promptTokens)));
+  context.setVariable('llm.usage.completion_tokens', String(Math.floor(completionTokens)));
+  context.setVariable('llm.usage.total_tokens', String(Math.floor(totalTokens)));
+  context.setVariable('llm.usage.cached_tokens', String(Math.floor(cachedTokens)));
+  context.setVariable('llm.usage.reasoning_tokens', String(Math.floor(thoughtTokens)));
   context.setVariable('llm.finish_reason', (choices.length > 0 && choices[0].finish_reason) ? choices[0].finish_reason : 'none');
 
 })();

@@ -23,6 +23,7 @@ Agente (SDK OpenAI)  ──POST /llm/v1/chat/completions──▶  Apigee X  ─
 | Autenticação no backend | `<GoogleAccessToken>` no TargetEndpoint | O Apigee assume a service account de deploy. Não existe chave de API do Vertex circulando, nem segredo no KVM. |
 | Configuração | KVM de environment `llm-gateway-config` | Trocar região, projeto ou catálogo de modelos vira edição de KVM. Sem redeploy, sem rebuild. |
 | Telemetria | `DataCapture` + data collectors | Tokens viram dimensão/métrica nativa do Apigee Analytics, com export para BigQuery. |
+| Auditoria e Logs | `MessageLogging` (Cloud Logging) | Despacho assíncrono no `PostClientFlow` com payload completo (prompt, response, metadata, tokens) sem adicionar latência ao cliente. |
 
 **Padrão alternativo considerado:** um único TargetEndpoint com `target.url` dinâmico elimina as
 RouteRules e faz "adicionar modelo" ser só uma linha no KVM. Ficou de fora porque o requisito pede
@@ -43,17 +44,21 @@ segmentado). O bundle está preparado para os dois — ver seção 8.
 6. `EV-ExtractRequestFields` — extrai `$.model` → `llm.model.alias` (é isso que a RouteRule lê), `$.stream`, `$.user`.
 7. `JS-OpenAIToGemini` — valida e reescreve o payload inteiro.
 8. `RF-ClientError` — se a validação reprovou, devolve erro no envelope OpenAI e encerra.
-9. `AM-CleanTargetRequest` — remove `x-apikey` e qualquer `Authorization` do cliente antes do upstream.
-10. RouteRule seleciona `gemini-flash` ou `gemini-flash-lite`.
-11. `AM-SetVertexTarget` — monta `target.url` completo.
+9. `LTQ-TokenEnforce` — valida cota de tokens LLM antes do encaminhamento ao modelo.
+10. `AM-CleanTargetRequest` — remove `x-apikey` e qualquer `Authorization` do cliente antes do upstream.
+11. RouteRule seleciona `gemini-flash` ou `gemini-flash-lite`.
+12. `AM-SetVertexTarget` — monta `target.url` completo.
 
 **Response**
 
-12. `JS-VertexErrorToOpenAI` — se `status != 200`, normaliza o erro do Vertex para o envelope OpenAI.
-13. `JS-GeminiToOpenAI` — monta o objeto `chat.completion` e publica `llm.usage.*`.
-14. `JS-SseEmulation` — só quando `stream: true`.
-15. `DC-LlmUsage` — grava nos data collectors (PostFlow **e** DefaultFaultRule, para não perder tokens em chamadas que falharam no meio).
-16. `AM-AddCorsAndTrace` — headers `x-request-id`, `x-llm-model`, `x-llm-total-tokens`.
+13. `JS-VertexErrorToOpenAI` — se `status != 200`, normaliza o erro do Vertex para o envelope OpenAI.
+14. `JS-GeminiToOpenAI` — monta o objeto `chat.completion` e publica `llm.usage.*`.
+15. `LTQ-TokenCount` — debita os tokens consumidos na cota do API Product / App.
+16. `JS-SseEmulation` — só quando `stream: true`.
+17. `DC-LlmUsage` — grava nos data collectors (PostFlow **e** DefaultFaultRule, para não perder tokens em chamadas que falharam no meio).
+18. `AM-AddCorsAndTrace` — headers `x-request-id`, `x-llm-model`, `x-llm-total-tokens`.
+19. `JS-PrepareCloudLog` — estrutura o objeto JSON completo para o Cloud Logging.
+20. `ML-LogToCloudLogging` (em `PostClientFlow`) — envia o log para o Cloud Logging de forma 100% assíncrona após a resposta ter sido entregue ao cliente.
 
 O `success.codes` do target está como `1xx,2xx,3xx,4xx,5xx` **de propósito**: sem isso o Apigee
 levanta fault no 429 do Vertex e a policy de normalização de erro nunca roda.
@@ -170,6 +175,53 @@ $$\text{Total Debitado} = \text{Prompt Tokens (Input)} + \text{Completion Tokens
 > [!TIP]
 > Caso sua organização opte por tarifar apenas *Output Tokens* ou aplicar pesos distintos, basta alterar a tag `<LLMTokenUsageSource>` em [`LTQ-TokenCount.xml`](file:///usr/local/google/home/iagoleoni/projects-fde/l300/apigee-gpt-gemini/apigee-proxy-deploy/apiproxy/policies/LTQ-TokenCount.xml) para `{llm.usage.completion_tokens}` ou para uma variável customizada com fórmula de ponderação.
 
+### Auditoria Completa no Cloud Logging (`MessageLogging`)
+
+O gateway integra com o **Google Cloud Logging** através do `PostClientFlow`, garantindo que 100% dos eventos sejam registrados assincronamente **sem adicionar latência** à resposta do cliente.
+
+#### 1. Payload Estruturado
+O script [`prepare-cloud-log.js`](file:///usr/local/google/home/iagoleoni/projects-fde/l300/apigee-gpt-gemini/apigee-proxy-deploy/apiproxy/resources/jsc/prepare-cloud-log.js) consolida metadados, payload completo de entrada e saída:
+
+```json
+{
+  "timestamp": 1788377407,
+  "messageId": "38525ed5-6e29-48a7-b562-6414889357c941",
+  "proxy": "llm-gateway-v1",
+  "environment": "prod",
+  "clientIp": "35.191.131.113",
+  "developerApp": "agente-piloto",
+  "developerEmail": "iagoleoni@google.com",
+  "apiProduct": "llm-gateway-standard",
+  "httpMethod": "POST",
+  "path": "/v1/chat/completions",
+  "statusCode": 200,
+  "model": "gemini-3.7-flash",
+  "modelId": "gemini-2.5-flash",
+  "endUser": "user-123",
+  "isStreaming": false,
+  "usage": {
+    "promptTokens": 9,
+    "completionTokens": 615,
+    "reasoningTokens": 611,
+    "totalTokens": 624
+  },
+  "finishReason": "stop",
+  "requestPayload": { "contents": [...] },
+  "responsePayload": { "choices": [...] }
+}
+```
+
+#### 2. Consulta via gcloud / Logs Explorer
+Os logs são gravados no logName `projects/{PROJECT_ID}/logs/apigee-llm-gateway`:
+
+```bash
+# Ver últimos logs de chamadas LLM
+gcloud logging read 'logName="projects/'${PROJECT_ID}'/logs/apigee-llm-gateway"' --limit=5 --format=json
+
+# Filtrar consumo por app específica
+gcloud logging read 'logName="projects/'${PROJECT_ID}'/logs/apigee-llm-gateway" AND jsonPayload.developerApp="agente-piloto"' --limit=10
+```
+
 ---
 
 ## 5. Deploy
@@ -179,7 +231,7 @@ cd deploy
 cp config.env.example config.env && vim config.env
 
 ./00-enable-apis.sh          # apigee + aiplatform
-./01-service-account.sh      # SA + roles/aiplatform.user + tokenCreator
+./01-service-account.sh      # SA + roles/aiplatform.user + tokenCreator + logging.logWriter
 ./02-create-datacollectors.sh
 ./03-create-kvm.sh           # vertex_host/project/location + model_map
 ./04-deploy-proxy.sh         # zip + import + deploy com serviceAccount
@@ -226,6 +278,7 @@ e não uma extensão deste.
 - **Modelo Rhino/ES5.** Nada de `let`, `const`, arrow, template literal, `Array.prototype.includes`. Os scripts respeitam isso.
 - **Payload em memória.** Requests multimodais com imagens em base64 sobem o consumo de memória do MP. Para anexos grandes, prefira `gs://` (o `fileData` já suporta).
 - **Cota e Autorização de Tokens.** Implementado nativamente via `LLMTokenQuota` (`LTQ-TokenEnforce` e `LTQ-TokenCount`) vinculado ao `llmOperationGroup` do API Product, com limite mensal de tokens e autorização granular por modelo.
+- **Auditoria Assíncrona.** Realizada via `ML-LogToCloudLogging` no `PostClientFlow`. Não bloqueia nem retarda a entrega HTTP ao cliente.
 - **IDs dos modelos.** `gemini-3.7-flash` e `gemini-3.1-flash-lite` estão como aliases *e* como `id` no `model_map`. Confirme o publisher model id exato no Model Garden e na região escolhida antes do primeiro deploy — se divergir, basta editar o `id` no KVM, sem tocar no proxy.
 - **Região.** Se usar `vertex_location=global`, o `vertex_host` precisa ser `aiplatform.googleapis.com` (sem prefixo de região).
 
@@ -241,7 +294,7 @@ e não uma extensão deste.
 | Cache semântico | `SemanticCacheLookup` / `SemanticCachePopulate` — corta custo em prompts repetidos |
 | Failover | `LoadBalancer` com fallback do flash para o flash-lite em 429/503 |
 | Multi-provider | Novo par de scripts de tradução por dialeto (Anthropic, Mistral); o contrato de entrada continua sendo OpenAI |
-| Auditoria | `MessageLogging` para Cloud Logging no PostClientFlow, com máscara de PII |
+| Máscara de PII | Policy JavaScript ou Model Armor para ofuscar dados sensíveis no payload antes do envio ao Cloud Logging |
 
 ---
 
@@ -250,14 +303,15 @@ e não uma extensão deste.
 ```
 apiproxy/
   llm-gateway-v1.xml
-  proxies/default.xml                    base path /llm, flows, RouteRules, FaultRules
+  proxies/default.xml                    base path /llm, flows, RouteRules, FaultRules, PostClientFlow
   targets/gemini-flash.xml               Vertex + GoogleAccessToken (modelo principal)
   targets/gemini-flash-lite.xml          idem, timeout menor
-  policies/                              23 policies (AssignMessage, DataCapture, LLMTokenQuota, etc.)
+  policies/                              24 policies (AssignMessage, DataCapture, LLMTokenQuota, MessageLogging, etc.)
   resources/jsc/
     llm-common.js                        helpers ES5 compartilhados
     openai-to-gemini.js                  tradução de request
     gemini-to-openai.js                  tradução de response + tokens
+    prepare-cloud-log.js                 estruturação de log para Cloud Logging
     sse-emulation.js                     stream: true
     vertex-error-to-openai.js            normalização de erro
     list-models.js                       GET /v1/models

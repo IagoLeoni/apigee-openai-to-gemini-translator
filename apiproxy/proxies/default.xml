@@ -111,6 +111,9 @@
       <Step>
         <Name>AM-AddCorsAndTrace</Name>
       </Step>
+      <Step>
+        <Name>JS-PrepareCloudLog</Name>
+      </Step>
     </Response>
   </PostFlow>
 
@@ -121,8 +124,19 @@
     <Step>
       <Name>AM-AddCorsAndTrace</Name>
     </Step>
+    <Step>
+      <Name>JS-PrepareCloudLog</Name>
+    </Step>
     <AlwaysEnforce>true</AlwaysEnforce>
   </DefaultFaultRule>
+
+  <PostClientFlow name="PostClientFlow">
+    <Response>
+      <Step>
+        <Name>ML-LogToCloudLogging</Name>
+      </Step>
+    </Response>
+  </PostClientFlow>
 
   <FaultRules>
     <FaultRule name="apikey-faults">

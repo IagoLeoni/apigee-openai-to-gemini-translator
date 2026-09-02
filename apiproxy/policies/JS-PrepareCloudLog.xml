@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Javascript continueOnError="true" enabled="true" timeLimit="2000" name="JS-PrepareCloudLog">
+  <DisplayName>JS-PrepareCloudLog</DisplayName>
+  <IncludeURL>jsc://llm-common.js</IncludeURL>
+  <ResourceURL>jsc://prepare-cloud-log.js</ResourceURL>
+</Javascript>
