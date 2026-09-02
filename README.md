@@ -143,12 +143,32 @@ Regras que valem a pena reter:
 - Em orgs Pay-as-you-go, a `DataCapture` exige o add-on **Apigee API Analytics** habilitado.
 - Dados novos aparecem em custom reports com atraso de ~30 min na primeira vez.
 
-`SC-LlmUsage.xml` está no bundle como alternativa com `StatisticsCollector` (herança do Edge).
-Use **uma** das duas, nunca as duas.
-
 Para dashboards de custo, exporte a analytics para BigQuery e junte com a tabela de preço por modelo
 (`analytics/export-data`). O rateio por time sai de `dc_llm_app`; o rateio por usuário final, de
 `dc_llm_end_user`.
+
+### Governança e Cota de Tokens (`LLMTokenQuota`)
+
+A cota padrão de **1.000.000 tokens/mês** configurada no API Product utiliza como fonte de débito a variável `llm.usage.total_tokens` na policy `LTQ-TokenCount.xml`.
+
+#### 1. Quais tokens são contabilizados na Cota?
+O total debitado corresponde a:
+$$\text{Total Debitado} = \text{Prompt Tokens (Input)} + \text{Completion Tokens (Output)} + \text{Reasoning Tokens (Thinking)}$$
+
+* **Input (Prompt)**: `usageMetadata.promptTokenCount` (texto + imagens/áudio convertidos).
+* **Output (Completion)**: `candidatesTokenCount` (texto e chamadas de função geradas).
+* **Reasoning (Thinking)**: `thoughtsTokenCount` (tokens de raciocínio interno do Gemini).
+
+#### 2. Melhor Prática de Mercado
+* **Proteção FinOps & Budget Caps**: Provedores de IA (Vertex AI, OpenAI, Anthropic) faturam tanto tokens de entrada quanto de saída. Estabelecer a cota sobre o **Total de Tokens** é o padrão de mercado para evitar surpresas no faturamento e garantir isolamento orçamentário por time/App.
+* **Mitigação de Explosão de Thinking Tokens**: Em modelos com raciocínio (`thinkingConfig`), o volume de tokens internos pode ser expressivo. Contabilizar `total_tokens` impede que prompts aparentemente curtos gerem custos desproporcionais sem controle de cota.
+* **Defesa em 3 Camadas**:
+  1. `SA-SpikeArrest`: Proteção contra rajadas imediatas por IP (60 req/s).
+  2. `Q-RequestQuota`: Limite de frequência de requisições por App (600 req/min).
+  3. `LTQ-TokenEnforce` / `LTQ-TokenCount`: Limite volumétrico de consumo de tokens por App (ex: 1M tokens/mês).
+
+> [!TIP]
+> Caso sua organização opte por tarifar apenas *Output Tokens* ou aplicar pesos distintos, basta alterar a tag `<LLMTokenUsageSource>` em [`LTQ-TokenCount.xml`](file:///usr/local/google/home/iagoleoni/projects-fde/l300/apigee-gpt-gemini/apigee-proxy-deploy/apiproxy/policies/LTQ-TokenCount.xml) para `{llm.usage.completion_tokens}` ou para uma variável customizada com fórmula de ponderação.
 
 ---
 
