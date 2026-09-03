@@ -1,112 +1,105 @@
-# LLM Gateway no Apigee X — superfície OpenAI sobre Vertex AI Gemini
+[English](README.md) | [Português (Brasil)](README.pt-BR.md)
 
-Proxy que expõe o contrato **OpenAI Chat Completions** para os agentes e converte, em voo, para o
-contrato **Vertex AI `:generateContent`** do Model Garden. O agente continua usando o SDK da OpenAI
-sem alteração de código; o backend é Gemini.
+# LLM Gateway on Apigee X — OpenAI Surface over Vertex AI Gemini
+
+An Apigee X proxy that exposes the **OpenAI Chat Completions** API contract to AI agents and converts it in-flight to the **Vertex AI `:generateContent`** contract on Model Garden. Your agents continue using the standard OpenAI SDK without any code changes; the backend is Gemini.
 
 ```
-Agente (SDK OpenAI)  ──POST /llm/v1/chat/completions──▶  Apigee X  ──▶  Vertex AI Model Garden
-       header: x-apikey                                  llm-gateway-v1        gemini-3.7-flash
-                                                                               gemini-3.1-flash-lite
+Agent (OpenAI SDK)  ──POST /llm/v1/chat/completions──▶  Apigee X  ──▶  Vertex AI Model Garden
+       header: x-apikey                                 llm-gateway-v1        gemini-3.7-flash
+                                                                              gemini-3.1-flash-lite
 ```
 
 ---
 
-## 1. Decisões de arquitetura
+## 1. Architectural Decisions
 
-| Decisão | Escolha | Por quê |
+| Decision | Choice | Rationale |
 |---|---|---|
-| Superfície do cliente | `/llm/v1/chat/completions` | Com base path `/llm`, o `base_url` do SDK vira `https://host/llm/v1`. Zero mudança no agente. |
-| Tradução | Policies `Javascript` (Rhino/ES5) | O mapeamento GPT↔Gemini não é 1-para-1 (roles, tools, multimodal, thinking). AssignMessage/XSL não dão conta; JS é a única opção declarativa dentro do proxy. |
-| Roteamento | `RouteRule` sobre `llm.model.alias` | Atende ao requisito de rotear pelo campo `model` do body, e dá isolamento por modelo: timeout, retry e circuit breaker independentes. |
-| Autenticação do cliente | `VerifyAPIKey` sobre `request.header.x-apikey` | Traz junto app, developer e produto — que viram dimensões de analytics e base de quota, sem trabalho extra. |
-| Autenticação no backend | `<GoogleAccessToken>` no TargetEndpoint | O Apigee assume a service account de deploy. Não existe chave de API do Vertex circulando, nem segredo no KVM. |
-| Configuração | KVM de environment `llm-gateway-config` | Trocar região, projeto ou catálogo de modelos vira edição de KVM. Sem redeploy, sem rebuild. |
-| Telemetria | `DataCapture` + data collectors | Tokens viram dimensão/métrica nativa do Apigee Analytics, com export para BigQuery. |
-| Auditoria e Logs | `MessageLogging` (Cloud Logging) | Despacho assíncrono no `PostClientFlow` com payload completo (prompt, response, metadata, tokens) sem adicionar latência ao cliente. |
+| Client Surface | `/llm/v1/chat/completions` | With base path `/llm`, the SDK `base_url` becomes `https://host/llm/v1`. Zero changes needed in agent client code. |
+| Translation | `Javascript` policies (Rhino/ES5) | The GPT↔Gemini schema mapping is not 1-to-1 (roles, tool calling, multimodal, thinking tokens). AssignMessage and XSL are insufficient; JS is the standard declarative approach inside the proxy. |
+| Routing | `RouteRule` based on `llm.model.alias` | Meets the requirement to route based on the body's `model` field, providing per-model isolation: independent timeouts, retries, and circuit breakers. |
+| Client Authentication | `VerifyAPIKey` on `request.header.x-apikey` | Automatically resolves App, Developer, and API Product — populating analytics dimensions and quota counters without extra overhead. |
+| Backend Authentication | `<GoogleAccessToken>` in TargetEndpoint | Apigee assumes the deployment Service Account. No Vertex AI API keys circulate, and no credentials need to be stored in KVM. |
+| Configuration | Environment KVM `llm-gateway-config` | Switching region, project, or model catalog is done purely via KVM updates. No redeployment or rebuild required. |
+| Telemetry | `DataCapture` + Data Collectors | LLM tokens become native dimensions/metrics in Apigee Analytics, with direct export capability to BigQuery. |
+| Audit & Logs | `MessageLogging` (Cloud Logging) | Asynchronous dispatch in `PostClientFlow` with full payload (prompt, response, metadata, tokens) without adding latency to the client response. |
 
-**Padrão alternativo considerado:** um único TargetEndpoint com `target.url` dinâmico elimina as
-RouteRules e faz "adicionar modelo" ser só uma linha no KVM. Ficou de fora porque o requisito pede
-roteamento explícito e porque perde-se o controle por modelo (timeout, failover, spike arrest
-segmentado). O bundle está preparado para os dois — ver seção 8.
+**Alternative pattern considered:** A single TargetEndpoint with dynamic `target.url` eliminates RouteRules and makes adding new models a single-line KVM change. It was omitted because the requirements specify explicit routing and per-model operational isolation (timeouts, failover, segmented spike arrest). The bundle supports both — see Section 8.
 
 ---
 
-## 2. Fluxo de execução
+## 2. Execution Flow
 
 **Request**
 
-1. `AM-CorsPreflight` — responde `OPTIONS` sem tocar no backend.
-2. `SA-SpikeArrest` — protege contra rajada por IP (60/s).
-3. `VA-VerifyApiKey` — valida `x-apikey`, popula `developer.app.name`, `client_id`, produto.
-4. `Q-RequestQuota` — quota por app, herdada do API product.
-5. `KVM-LoadGatewayConfig` — carrega host/projeto/região do Vertex e o `model_map` (cache 300s).
-6. `EV-ExtractRequestFields` — extrai `$.model` → `llm.model.alias` (é isso que a RouteRule lê), `$.stream`, `$.user`.
-7. `JS-OpenAIToGemini` — valida e reescreve o payload inteiro.
-8. `RF-ClientError` — se a validação reprovou, devolve erro no envelope OpenAI e encerra.
-9. `LTQ-TokenEnforce` — valida cota de tokens LLM antes do encaminhamento ao modelo.
-10. `AM-CleanTargetRequest` — remove `x-apikey` e qualquer `Authorization` do cliente antes do upstream.
-11. RouteRule seleciona `gemini-flash` ou `gemini-flash-lite`.
-12. `AM-SetVertexTarget` — monta `target.url` completo.
+1. `AM-CorsPreflight` — handles CORS `OPTIONS` preflight requests immediately without calling the backend.
+2. `SA-SpikeArrest` — protects against sudden IP-level traffic spikes (60 req/s).
+3. `VA-VerifyApiKey` — validates `x-apikey`, populating `developer.app.name`, `client_id`, and API Product.
+4. `Q-RequestQuota` — enforces request rate quota per app as inherited from the API Product.
+5. `KVM-LoadGatewayConfig` — loads Vertex host/project/region and `model_map` from KVM (cached for 300s).
+6. `EV-ExtractRequestFields` — extracts `$.model` → `llm.model.alias` (read by RouteRules), `$.stream`, and `$.user`.
+7. `JS-OpenAIToGemini` — validates and transforms the entire JSON payload to Gemini format.
+8. `RF-ClientError` — returns standard OpenAI error responses immediately if validation fails.
+9. `LTQ-TokenEnforce` — verifies LLM token quota availability before forwarding to the upstream model.
+10. `AM-CleanTargetRequest` — strips client `x-apikey` and incoming `Authorization` headers before calling Vertex AI.
+11. RouteRule selects `gemini-flash` or `gemini-flash-lite`.
+12. `AM-SetVertexTarget` — constructs the full target URL.
 
 **Response**
 
-13. `JS-VertexErrorToOpenAI` — se `status != 200`, normaliza o erro do Vertex para o envelope OpenAI.
-14. `JS-GeminiToOpenAI` — monta o objeto `chat.completion` e publica `llm.usage.*`.
-15. `LTQ-TokenCount` — debita os tokens consumidos na cota do API Product / App.
-16. `JS-SseEmulation` — só quando `stream: true`.
-17. `DC-LlmUsage` — grava nos data collectors (PostFlow **e** DefaultFaultRule, para não perder tokens em chamadas que falharam no meio).
-18. `AM-AddCorsAndTrace` — headers `x-request-id`, `x-llm-model`, `x-llm-total-tokens`.
-19. `JS-PrepareCloudLog` — estrutura o objeto JSON completo para o Cloud Logging.
-20. `ML-LogToCloudLogging` (em `PostClientFlow`) — envia o log para o Cloud Logging de forma 100% assíncrona após a resposta ter sido entregue ao cliente.
+13. `JS-VertexErrorToOpenAI` — normalizes non-200 Vertex AI error responses into OpenAI error envelopes.
+14. `JS-GeminiToOpenAI` — constructs the `chat.completion` response payload and exports `llm.usage.*` variables.
+15. `LTQ-TokenCount` — debits consumed tokens against the API Product / App token quota.
+16. `JS-SseEmulation` — converts the response to Server-Sent Events (SSE) format when `stream: true`.
+17. `DC-LlmUsage` — records token metrics into Data Collectors (runs in both PostFlow and DefaultFaultRule).
+18. `AM-AddCorsAndTrace` — attaches response headers: `x-request-id`, `x-llm-model`, and `x-llm-total-tokens`.
+19. `JS-PrepareCloudLog` — structures the complete JSON payload for Google Cloud Logging.
+20. `ML-LogToCloudLogging` (in `PostClientFlow`) — dispatches structured logs asynchronously to Cloud Logging after the response has been delivered to the client.
 
-O `success.codes` do target está como `1xx,2xx,3xx,4xx,5xx` **de propósito**: sem isso o Apigee
-levanta fault no 429 do Vertex e a policy de normalização de erro nunca roda.
+The target `success.codes` is explicitly set to `1xx,2xx,3xx,4xx,5xx` to allow custom JavaScript error normalization policies to execute even on Vertex 429/5xx responses.
 
 ---
 
-## 3. Mapeamento de schema
+## 3. Schema Mapping
 
 ### Request — OpenAI → Gemini
 
-| OpenAI | Gemini | Nota |
+| OpenAI | Gemini | Note |
 |---|---|---|
-| `model` | path `.../models/{id}:generateContent` | Resolvido via `model_map` no KVM |
-| `messages[].role: system` \| `developer` | `systemInstruction.parts[].text` | Múltiplos systems são concatenados com `\n\n` |
+| `model` | path `.../models/{id}:generateContent` | Resolved via `model_map` in KVM |
+| `messages[].role: system` \| `developer` | `systemInstruction.parts[].text` | Multiple system messages are concatenated with `\n\n` |
 | `messages[].role: user` | `contents[].role: user` | |
 | `messages[].role: assistant` | `contents[].role: model` | |
-| `messages[].role: tool` | `contents[].parts[].functionResponse` | Nome resolvido pelo `tool_call_id` do turno anterior |
-| `content: "texto"` | `parts[{text}]` | |
+| `messages[].role: tool` | `contents[].parts[].functionResponse` | Function name resolved from preceding turn's `tool_call_id` |
+| `content: "text"` | `parts[{text}]` | |
 | `content: [{type:image_url}]` — data URL | `parts[{inlineData:{mimeType,data}}]` | |
 | `content: [{type:image_url}]` — `gs://` / `https://` | `parts[{fileData:{mimeType,fileUri}}]` | |
-| `tool_calls[].function` | `parts[{functionCall:{name,args}}]` | `arguments` (string) → `args` (objeto) |
-| `tools[].function` | `tools[0].functionDeclarations[]` | JSON Schema sanitizado |
+| `tool_calls[].function` | `parts[{functionCall:{name,args}}]` | `arguments` (JSON string) → `args` (parsed object) |
+| `tools[].function` | `tools[0].functionDeclarations[]` | Sanitized JSON Schema |
 | `tool_choice: none/auto/required` | `toolConfig.functionCallingConfig.mode: NONE/AUTO/ANY` | |
 | `tool_choice: {function:{name}}` | `mode: ANY` + `allowedFunctionNames` | |
-| `max_tokens` \| `max_completion_tokens` | `generationConfig.maxOutputTokens` | Limitado pelo teto do modelo no KVM |
+| `max_tokens` \| `max_completion_tokens` | `generationConfig.maxOutputTokens` | Capped by model max token limits in KVM |
 | `temperature` / `top_p` / `seed` | `temperature` / `topP` / `seed` | |
-| `stop` | `stopSequences` | String vira array |
+| `stop` | `stopSequences` | String converted to array |
 | `n` | `candidateCount` | |
 | `presence_penalty` / `frequency_penalty` | `presencePenalty` / `frequencyPenalty` | |
 | `response_format: json_object` | `responseMimeType: application/json` | |
 | `response_format: json_schema` | `responseMimeType` + `responseSchema` | |
-| `reasoning_effort` | `thinkingConfig.thinkingBudget` | minimal 0, low 1024, medium 8192, high 24576 |
+| `reasoning_effort` | `thinkingConfig.thinkingBudget` | minimal: 0, low: 1024, medium: 8192, high: 24576 |
 | `logprobs` / `top_logprobs` | `responseLogprobs` / `logprobs` | |
 
-**Duas armadilhas tratadas explicitamente:**
+**Explicitly handled edge cases:**
 
-- **Sanitização de JSON Schema.** O Gemini aceita só um subconjunto do OpenAPI Schema. Campos como
-  `$schema`, `additionalProperties` e `definitions` causam `400 INVALID_ARGUMENT`. A função
-  `sanitizeSchema()` faz allow-list recursiva.
-- **Turnos consecutivos do mesmo role.** O SDK OpenAI produz sequências que o Gemini rejeita ou
-  degrada. Mensagens consecutivas do mesmo role são fundidas em um único `content`.
+- **JSON Schema Sanitization:** Gemini accepts a strict subset of OpenAPI Schema. Unsupported keywords like `$schema`, `additionalProperties`, and `definitions` trigger `400 INVALID_ARGUMENT`. The `sanitizeSchema()` function performs recursive allow-listing.
+- **Consecutive Same-Role Turns:** OpenAI SDK clients can produce sequences of consecutive user or assistant messages that Gemini rejects or handles poorly. Consecutive turns of the same role are automatically merged into a single `content` turn.
 
 ### Response — Gemini → OpenAI
 
 | Gemini | OpenAI |
 |---|---|
 | `candidates[].content.parts[].text` | `choices[].message.content` |
-| `parts[].thought: true` | **descartado** (raciocínio interno não vaza para o cliente) |
+| `parts[].thought: true` | **discarded** (internal reasoning thoughts are kept private) |
 | `candidates[].content.parts[].functionCall` | `choices[].message.tool_calls[]` |
 | `finishReason: STOP` | `stop` |
 | `finishReason: MAX_TOKENS` | `length` |
@@ -118,69 +111,65 @@ levanta fault no 429 do Vertex e a policy de normalização de erro nunca roda.
 | `cachedContentTokenCount` | `usage.prompt_tokens_details.cached_tokens` |
 | `totalTokenCount` | `usage.total_tokens` |
 
-O ponto de atenção na contabilidade: **thinking tokens são faturados**. No schema OpenAI eles vivem
-dentro de `completion_tokens`, com detalhamento em `reasoning_tokens`. Somar apenas
-`candidatesTokenCount` subestima o custo real — em modelos com raciocínio, bastante.
+Key accounting detail: **Thinking tokens are billed**. In the OpenAI schema, they are accounted under `completion_tokens` with detailed breakdown in `completion_tokens_details.reasoning_tokens`. Summing only `candidatesTokenCount` significantly underestimates actual costs on reasoning models.
 
 ---
 
-## 4. Telemetria de tokens
+## 4. Token Telemetry & Governance
 
-Nove data collectors (`type` entre parênteses):
+Nine Data Collectors (`type` in parentheses):
 
-| Data collector | Tipo | Origem |
+| Data Collector | Type | Source |
 |---|---|---|
-| `dc_llm_model` | STRING | alias solicitado |
+| `dc_llm_model` | STRING | Requested model alias |
 | `dc_llm_prompt_tokens` | INTEGER | `usageMetadata.promptTokenCount` |
 | `dc_llm_completion_tokens` | INTEGER | `candidatesTokenCount` + `thoughtsTokenCount` |
 | `dc_llm_total_tokens` | INTEGER | `usageMetadata.totalTokenCount` |
 | `dc_llm_cached_tokens` | INTEGER | `cachedContentTokenCount` |
 | `dc_llm_reasoning_tokens` | INTEGER | `thoughtsTokenCount` |
-| `dc_llm_finish_reason` | STRING | mapeado |
+| `dc_llm_finish_reason` | STRING | Mapped finish reason |
 | `dc_llm_app` | STRING | `developer.app.name` |
-| `dc_llm_end_user` | STRING | campo `user` do payload |
+| `dc_llm_end_user` | STRING | Payload `user` field |
 
-Regras que valem a pena reter:
+Key rules and recommendations:
 
-- Todo nome **precisa** começar com `dc_`.
-- Numérico serve como métrica (com agregação) e como dimensão; string só como dimensão.
-- Só **uma** policy deve gravar em cada data collector — a última execução sobrescreve.
-- Em orgs Pay-as-you-go, a `DataCapture` exige o add-on **Apigee API Analytics** habilitado.
-- Dados novos aparecem em custom reports com atraso de ~30 min na primeira vez.
+- All Data Collector names **must** start with `dc_`.
+- Numeric collectors serve as both metrics (with aggregations) and dimensions; string collectors serve only as dimensions.
+- Only **one** policy should write to each collector per transaction (subsequent writes overwrite).
+- In Pay-as-you-go organizations, `DataCapture` requires the **Apigee API Analytics** add-on enabled.
+- New data appears in custom reports with a ~30 min propagation window upon initial setup.
 
-Para dashboards de custo, exporte a analytics para BigQuery e junte com a tabela de preço por modelo
-(`analytics/export-data`). O rateio por time sai de `dc_llm_app`; o rateio por usuário final, de
-`dc_llm_end_user`.
+For cost dashboards, export analytics data to BigQuery and join with your model pricing table. App-level allocation is extracted from `dc_llm_app`, and end-user attribution is extracted from `dc_llm_end_user`.
 
-### Governança e Cota de Tokens (`LLMTokenQuota`)
+### Token Governance & Quotas (`LLMTokenQuota`)
 
-A cota padrão de **1.000.000 tokens/mês** configurada no API Product utiliza como fonte de débito a variável `llm.usage.total_tokens` na policy `LTQ-TokenCount.xml`.
+The default quota of **1,000,000 tokens/month** configured in the API Product debits tokens using `llm.usage.total_tokens` in [`LTQ-TokenCount.xml`](apiproxy/policies/LTQ-TokenCount.xml).
 
-#### 1. Quais tokens são contabilizados na Cota?
-O total debitado corresponde a:
-$$\text{Total Debitado} = \text{Prompt Tokens (Input)} + \text{Completion Tokens (Output)} + \text{Reasoning Tokens (Thinking)}$$
+#### 1. Which Tokens Count Towards the Quota?
+The total debited token count is:
+$$\text{Total Debited} = \text{Prompt Tokens (Input)} + \text{Completion Tokens (Output)} + \text{Reasoning Tokens (Thinking)}$$
 
-* **Input (Prompt)**: `usageMetadata.promptTokenCount` (texto + imagens/áudio convertidos).
-* **Output (Completion)**: `candidatesTokenCount` (texto e chamadas de função geradas).
-* **Reasoning (Thinking)**: `thoughtsTokenCount` (tokens de raciocínio interno do Gemini).
+* **Input (Prompt)**: `usageMetadata.promptTokenCount` (text + converted image/audio tokens).
+* **Output (Completion)**: `candidatesTokenCount` (generated output text and function calls).
+* **Reasoning (Thinking)**: `thoughtsTokenCount` (Gemini internal reasoning tokens).
 
-#### 2. Melhor Prática de Mercado
-* **Proteção FinOps & Budget Caps**: Provedores de IA (Vertex AI, OpenAI, Anthropic) faturam tanto tokens de entrada quanto de saída. Estabelecer a cota sobre o **Total de Tokens** é o padrão de mercado para evitar surpresas no faturamento e garantir isolamento orçamentário por time/App.
-* **Mitigação de Explosão de Thinking Tokens**: Em modelos com raciocínio (`thinkingConfig`), o volume de tokens internos pode ser expressivo. Contabilizar `total_tokens` impede que prompts aparentemente curtos gerem custos desproporcionais sem controle de cota.
-* **Defesa em 3 Camadas**:
-  1. `SA-SpikeArrest`: Proteção contra rajadas imediatas por IP (60 req/s).
-  2. `Q-RequestQuota`: Limite de frequência de requisições por App (600 req/min).
-  3. `LTQ-TokenEnforce` / `LTQ-TokenCount`: Limite volumétrico de consumo de tokens por App (ex: 1M tokens/mês).
+#### 2. Market Best Practices
+* **FinOps Protection & Budget Caps:** AI cloud providers (Vertex AI, OpenAI, Anthropic) bill for both input and output tokens. Enforcing quotas on **Total Tokens** is the market standard to prevent unexpected billing spikes and maintain budget boundaries per application.
+* **Mitigating Thinking Token Explosions:** On models with reasoning enabled (`thinkingConfig`), internal thinking token counts can be substantial. Enforcing `total_tokens` prevents concise prompts from triggering high untracked compute costs.
+* **Three-Tier Defense Architecture:**
+  1. `SA-SpikeArrest`: Immediate IP-level burst protection (60 req/s).
+  2. `Q-RequestQuota`: App-level request rate limiting (600 req/min).
+  3. `LTQ-TokenEnforce` / `LTQ-TokenCount`: App-level volumetric token consumption caps (e.g., 1M tokens/month).
 
 > [!TIP]
-> Caso sua organização opte por tarifar apenas *Output Tokens* ou aplicar pesos distintos, basta alterar a tag `<LLMTokenUsageSource>` em [`LTQ-TokenCount.xml`](file:///usr/local/google/home/iagoleoni/projects-fde/l300/apigee-gpt-gemini/apigee-proxy-deploy/apiproxy/policies/LTQ-TokenCount.xml) para `{llm.usage.completion_tokens}` ou para uma variável customizada com fórmula de ponderação.
+> If your organization prefers to bill only *Output Tokens* or apply custom weighting factors, update the `<LLMTokenUsageSource>` element in [`LTQ-TokenCount.xml`](apiproxy/policies/LTQ-TokenCount.xml) to `{llm.usage.completion_tokens}` or to a custom variable with your weighted formula.
 
-### Auditoria Completa no Cloud Logging (`MessageLogging`)
+### Complete Audit Trail in Cloud Logging (`MessageLogging`)
 
-O gateway integra com o **Google Cloud Logging** através do `PostClientFlow`, garantindo que 100% dos eventos sejam registrados assincronamente **sem adicionar latência** à resposta do cliente.
+The gateway integrates natively with **Google Cloud Logging** through the `PostClientFlow`, ensuring 100% of transactions are logged asynchronously **without adding latency** to the client response.
 
-#### 1. Payload Estruturado
-O script [`prepare-cloud-log.js`](file:///usr/local/google/home/iagoleoni/projects-fde/l300/apigee-gpt-gemini/apigee-proxy-deploy/apiproxy/resources/jsc/prepare-cloud-log.js) consolida metadados, payload completo de entrada e saída:
+#### 1. Structured JSON Payload
+[`prepare-cloud-log.js`](apiproxy/resources/jsc/prepare-cloud-log.js) consolidates metadata, token usage, and full request/response bodies:
 
 ```json
 {
@@ -211,20 +200,20 @@ O script [`prepare-cloud-log.js`](file:///usr/local/google/home/iagoleoni/projec
 }
 ```
 
-#### 2. Consulta via gcloud / Logs Explorer
-Os logs são gravados no logName `projects/{PROJECT_ID}/logs/apigee-llm-gateway`:
+#### 2. Querying via gcloud / Logs Explorer
+Logs are written to `projects/{PROJECT_ID}/logs/apigee-llm-gateway`:
 
 ```bash
-# Ver últimos logs de chamadas LLM
+# View recent LLM gateway logs
 gcloud logging read 'logName="projects/'${PROJECT_ID}'/logs/apigee-llm-gateway"' --limit=5 --format=json
 
-# Filtrar consumo por app específica
+# Filter logs by developer application
 gcloud logging read 'logName="projects/'${PROJECT_ID}'/logs/apigee-llm-gateway" AND jsonPayload.developerApp="agente-piloto"' --limit=10
 ```
 
 ---
 
-## 5. Deploy
+## 5. Deployment
 
 ```bash
 cd deploy
@@ -234,89 +223,80 @@ cp config.env.example config.env && vim config.env
 ./01-service-account.sh      # SA + roles/aiplatform.user + tokenCreator + logging.logWriter
 ./02-create-datacollectors.sh
 ./03-create-kvm.sh           # vertex_host/project/location + model_map
-./04-deploy-proxy.sh         # zip + import + deploy com serviceAccount
-./05-create-product-app.sh   # cria API Product com LLM Operations e app
-./06-create-custom-report.sh # cria Custom Report de consumo no Apigee Analytics
+./04-deploy-proxy.sh         # zip + import + deploy with serviceAccount
+./05-create-product-app.sh   # create API Product with LLM Operations and Developer App
+./06-create-custom-report.sh # create Custom Report in Apigee Analytics
 ```
 
-O `serviceAccount=` no deploy é obrigatório — sem ele o `<GoogleAccessToken>` do target não funciona
-e toda chamada retorna 401 do Vertex.
+The `serviceAccount=` parameter during deployment is mandatory — without it, the `<GoogleAccessToken>` target element cannot mint tokens and upstream Vertex AI calls will return 401 Unauthorized.
 
-Validação:
+Validation:
 
 ```bash
 export APIGEE_HOST=34.49.232.218.nip.io
 export APIKEY=<consumerKey>
-./tests/smoke-tests.sh          # 10 cenários, incluindo os caminhos de erro
-python tests/openai_sdk_test.py # prova de compatibilidade com o SDK oficial
+./tests/smoke-tests.sh          # 10 automated end-to-end test scenarios
+python tests/openai_sdk_test.py # OpenAI official SDK compatibility test
 ```
 
-Os tradutores também rodam fora do Apigee: `node tests/harness.js` simula o objeto `context` e
-executa 40+ asserções sobre os dois sentidos da tradução. Vale plugar no CI antes do import.
+The JS translators can also run outside Apigee: `node tests/harness.js` simulates Apigee's `context` object and executes 40+ unit assertions across both translation directions.
 
 ---
 
 ## 6. Streaming
 
-O bundle usa **emulação SSE**: a chamada ao Vertex é não-streaming e a resposta é reempacotada em
-frames `data: {...}` + `data: [DONE]`. SDKs OpenAI com `stream=True` funcionam sem mudança.
+The bundle uses **SSE emulation**: upstream Vertex AI calls are non-streaming, and the response is re-packaged into standard SSE chunks (`data: {...}` + `data: [DONE]`). OpenAI SDK clients configured with `stream=True` work out-of-the-box.
 
-A limitação é honesta: **não há ganho de time-to-first-token**. O cliente recebe tudo de uma vez,
-formatado como stream.
+**Trade-off note:** There is **no reduction in time-to-first-token (TTFT)**. The client receives the complete response once generated, formatted as an SSE stream.
 
-*Modo B — streaming real.* Um flow separado com `response.streaming.enabled=true` e
-`:streamGenerateContent?alt=sse` no target entrega tokens de verdade. O custo: policies de resposta
-não rodam sobre o corpo, então (a) o cliente recebe o SSE no formato Gemini, não OpenAI, e (b) a
-captura de tokens pela `DataCapture` fica limitada — em SSE ela grava apenas o último valor
-observado. Se streaming real virar requisito, o caminho é um flow dedicado com um shim no cliente,
-e não uma extensão deste.
+*Real Streaming (Option B):* A dedicated flow with `response.streaming.enabled=true` and `:streamGenerateContent?alt=sse` in the target endpoint delivers live tokens. The trade-off: response policies cannot inspect or transform the streamed payload body, meaning (a) the client receives Gemini SSE events rather than OpenAI chunks, and (b) `DataCapture` can only record final token values observed. For real streaming, a dedicated flow with a client-side adapter is recommended.
 
 ---
 
-## 7. Limites e pontos de atenção
+## 7. Limits & Technical Notes
 
-- **Modelo Rhino/ES5.** Nada de `let`, `const`, arrow, template literal, `Array.prototype.includes`. Os scripts respeitam isso.
-- **Payload em memória.** Requests multimodais com imagens em base64 sobem o consumo de memória do MP. Para anexos grandes, prefira `gs://` (o `fileData` já suporta).
-- **Cota e Autorização de Tokens.** Implementado nativamente via `LLMTokenQuota` (`LTQ-TokenEnforce` e `LTQ-TokenCount`) vinculado ao `llmOperationGroup` do API Product, com limite mensal de tokens e autorização granular por modelo.
-- **Auditoria Assíncrona.** Realizada via `ML-LogToCloudLogging` no `PostClientFlow`. Não bloqueia nem retarda a entrega HTTP ao cliente.
-- **IDs dos modelos.** `gemini-3.7-flash` e `gemini-3.1-flash-lite` estão como aliases *e* como `id` no `model_map`. Confirme o publisher model id exato no Model Garden e na região escolhida antes do primeiro deploy — se divergir, basta editar o `id` no KVM, sem tocar no proxy.
-- **Região.** Se usar `vertex_location=global`, o `vertex_host` precisa ser `aiplatform.googleapis.com` (sem prefixo de região).
+- **Rhino/ES5 Engine:** Do not use `let`, `const`, arrow functions, template literals, or ES6+ array methods in JavaScript resources.
+- **In-Memory Payloads:** Multimodal requests with large base64 inline images increase Message Processor memory consumption. For large attachments, prefer Cloud Storage URIs (`gs://`), which are supported via `fileData`.
+- **Token Quota & Model Authorization:** Implemented natively using `LLMTokenQuota` (`LTQ-TokenEnforce` and `LTQ-TokenCount`) bound to the API Product's `llmOperationGroup`, enforcing monthly token ceilings and granular model access.
+- **Asynchronous Audit Logging:** Handled via `ML-LogToCloudLogging` in `PostClientFlow`. Does not delay or block HTTP delivery to the client.
+- **Model IDs:** `gemini-3.7-flash` and `gemini-3.1-flash-lite` are configured as aliases and `id`s in `model_map`. Verify publisher model IDs in Model Garden for your target region; update the KVM entry if needed without redeploying the proxy.
+- **Region Configuration:** When using `vertex_location=global`, `vertex_host` must be `aiplatform.googleapis.com` (without a regional prefix).
 
 ---
 
-## 8. Evolução natural
+## 8. Roadmap & Extensions
 
-| Próximo passo | Como |
+| Next Step | Implementation |
 |---|---|
-| Terceiro modelo | Entrada no `model_map` + uma RouteRule + um TargetEndpoint |
-| Catálogo grande | Migrar para target único com `target.url` dinâmico (o `AM-SetVertexTarget` já monta a URL inteira; basta apontar as RouteRules para um só target) |
-| Guardrails | Policies `SanitizeUserPrompt` / `SanitizeModelResponse` (Model Armor) no PreFlow e no Response |
-| Cache semântico | `SemanticCacheLookup` / `SemanticCachePopulate` — corta custo em prompts repetidos |
-| Failover | `LoadBalancer` com fallback do flash para o flash-lite em 429/503 |
-| Multi-provider | Novo par de scripts de tradução por dialeto (Anthropic, Mistral); o contrato de entrada continua sendo OpenAI |
-| Máscara de PII | Policy JavaScript ou Model Armor para ofuscar dados sensíveis no payload antes do envio ao Cloud Logging |
+| Additional Models | Add entry to KVM `model_map` + 1 RouteRule + 1 TargetEndpoint |
+| Large Model Catalog | Migrate to a single TargetEndpoint with dynamic `target.url` (`AM-SetVertexTarget` already builds the dynamic URL) |
+| Safety Guardrails | `SanitizeUserPrompt` / `SanitizeModelResponse` (Model Armor) in PreFlow and Response flows |
+| Semantic Caching | `SemanticCacheLookup` / `SemanticCachePopulate` — reduces cost and latency on frequent prompts |
+| Automated Failover | `LoadBalancer` failover from Flash to Flash-Lite on 429/503 responses |
+| Multi-Provider Support | Add translation scripts for additional dialects (Anthropic, Mistral); incoming contract remains OpenAI |
+| PII Masking | JavaScript policy or Model Armor filter to mask sensitive PII before shipping payloads to Cloud Logging |
 
 ---
 
-## 9. Estrutura do bundle
+## 9. Bundle Structure
 
 ```
 apiproxy/
   llm-gateway-v1.xml
-  proxies/default.xml                    base path /llm, flows, RouteRules, FaultRules, PostClientFlow
-  targets/gemini-flash.xml               Vertex + GoogleAccessToken (modelo principal)
-  targets/gemini-flash-lite.xml          idem, timeout menor
+  proxies/default.xml                    Base path /llm, flows, RouteRules, FaultRules, PostClientFlow
+  targets/gemini-flash.xml               Vertex + GoogleAccessToken (primary model)
+  targets/gemini-flash-lite.xml          Target for lite model with lower timeout
   policies/                              24 policies (AssignMessage, DataCapture, LLMTokenQuota, MessageLogging, etc.)
   resources/jsc/
-    llm-common.js                        helpers ES5 compartilhados
-    openai-to-gemini.js                  tradução de request
-    gemini-to-openai.js                  tradução de response + tokens
-    prepare-cloud-log.js                 estruturação de log para Cloud Logging
-    sse-emulation.js                     stream: true
-    vertex-error-to-openai.js            normalização de erro
-    list-models.js                       GET /v1/models
-deploy/                                  7 scripts idempotentes (00 a 06 + config)
-tests/                                   harness offline, smoke tests, SDK OpenAI
+    llm-common.js                        ES5 shared helper library
+    openai-to-gemini.js                  Request payload translator
+    gemini-to-openai.js                  Response payload translator + token metrics
+    prepare-cloud-log.js                 JSON structuring for Cloud Logging
+    sse-emulation.js                     Server-Sent Events emulator (stream: true)
+    vertex-error-to-openai.js            Error envelope normalizer
+    list-models.js                       GET /v1/models mock response generator
+deploy/                                  7 idempotent automation scripts (00 to 06 + config)
+tests/                                   Offline harness, smoke tests, OpenAI SDK verification
 ```
 
 ---
